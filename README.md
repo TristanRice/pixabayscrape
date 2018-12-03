@@ -1,1 +1,0 @@
-Scrapes images from pixibay

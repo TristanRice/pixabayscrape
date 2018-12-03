@@ -15,7 +15,7 @@ username = "test_account_1873"
 MAIN_URL = BASE_URL+"/en/photos?image_type=photo"
 DEFAULT_DIRECTORY = "images/"
 
-def download_file(url, directory=DEFAULT_DIRECTORY, name, chunk_size=1024):
+def download_file(url, name, directory=DEFAULT_DIRECTORY, chunk_size=1024):
 	r = requests.get(url, stream=True)
 	with open(directory+name+".jpg") as f:
 		for chunk in r.iter_content(chunk_size=chunk_size):
@@ -73,7 +73,7 @@ def image_urls(url):
 def main( ):
 	urls = make_urls( )
 	directory = str(input("Please enter the directory that you would like the images to be saved in (default: {}): ").format(DEFAULT_DIRECTORY))
-	if !directory: directory=DEFAULT_DIRECTORY
+	if not directory: directory=DEFAULT_DIRECTORY
 	os.mkdir(directory)
 	with Pool(10) as p:
 		pm = p.imap_unordered(image_urls, urls)

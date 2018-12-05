@@ -5,6 +5,7 @@ import csv
 import lxml
 import socket
 import requests
+import pycountry
 from time import sleep
 from requests import RequestException
 from multiprocessing.dummy import Pool
@@ -18,7 +19,11 @@ username = "test_account_1873"
 MAIN_URL = BASE_URL+"/en/photos?image_type=photo"
 DEFAULT_TIFF_DIRECTORY = "tiffs"
 DEFAULT_PREVIEW_DIRECTORY = "jpgs"
+DEFAULT_CSV_NAME = "image_csv.csv"
 TIME_BETWEEN_FAILED_ATTEMPTS = 5
+
+def make_countries( ):
+	return [country.name for country in pycountry.countries]
 
 def download_file(url, name, directory=DEFAULT_TIFF_DIRECTORY, chunk_size=1024, ext="tiff"):
     print("[*] Downloading file {0}".format(url))
@@ -29,6 +34,11 @@ def download_file(url, name, directory=DEFAULT_TIFF_DIRECTORY, chunk_size=1024, 
                 f.write(chunk)
                 f.flush( )
 
+"""
+I just use this so that if anything fails, the program won't completely break. For example, if a link is broken, 
+then the program won't stop working. 
+Because this program is multithreaded, this waiting for 5 seconds won't stop other downloads from going through
+"""
 def make_request(url, failed_until_giveup=20, stream=False):
     for attempt in range(failed_until_giveup):
         try:
@@ -38,8 +48,6 @@ def make_request(url, failed_until_giveup=20, stream=False):
             print("[*] Request failed, retrying in {0} seconds".format(TIME_BETWEEN_FAILED_ATTEMPTS))
             print("Giving up in {0} attempts".format(failed_until_giveup-attempt))
             sleep(TIME_BETWEEN_FAILED_ATTEMPTS)
-        except socket.error:
-        	print("err")
 
 def make_urls( ):
     """This gets the total amount of pages that are in the websites /en/photos, and will return a list of all possible
@@ -52,10 +60,12 @@ def make_urls( ):
 
 def handle_image(url):
     #This gets the image url, and gets all metadata 
-    r                =   requests.get(url)
+    countries 		 =   make_countries( )
+    r                =   make_request(url)
     soup             =   BSoup(r.text, "lxml")
-    cdn_640          =   soup.find_all("input", type="radio")[0]["value"]
+    cdn_640      	 =   soup.find_all("input", type="radio")[0]["value"]
     cdn_1280         =   cdn_640.replace("_640.jpg", "_1280.jpg")
+    preview 		 =   cdn_640.replace("_640.jpg", "__340.jpg")
     title            =   soup.title.string.split("·")[0].strip( )
     author           =   soup.find_all("img", class_="hover_opacity")[0]["alt"]
     details          =   soup.find_all("table", id="details")
@@ -63,28 +73,36 @@ def handle_image(url):
     tags             =   soup.find_all("h1")
     keywords         =   " ".join([tag.string for tag in tags[0].findChildren("a") if tag.string is not None])
     try:
-        category         =   details[0].findChildren("a")[0].string
+        category     =   details[0].findChildren("a")[0].string #because the category in the details will always be a link,
     except IndexError:
-    	#In this case, there isn't a category, so I can't 
-        category = ""
+    	#Some images don't have a category, so 
+        category     =   ""
+    keywordslist 	 =   keywords.split( )
+    country 		 =   ''.join([word for word in keywordslist if word in countries])
+
 
     #List goes as follows:
-    #image_url, full_size_direct_download, jpg_download_link, title, author, Original publisher
-    #original_creation_year,scene_information, original_location, keywords, categoy, copyright_status.
+    #image_url, full_size_direct_download, jpg_download_link, title, author,
+    #original_creation_year, original_location, keywords, category, copyright_status.
     
-    list1 = [url, cdn_1280, cdn_640, title, author, "",  year_created, "", "", keywords, category, "Royalty free"]
+    list1 = [url, cdn_1280, preview, title, author, year_created, country, keywords, category, "CC0"]
     CSV.write(list1)
     return list1
 
+"""
+This is used to prompt the user to chose where they want to save the images and the CSV file. 
+"""
 def handle_directories( ):
-    tiff_directory = input("Please enter the directory in which you would like to save the TIFF images in (default: {0}/ ): ".format(DEFAULT_TIFF_DIRECTORY))
-    jpg_directory  = input("Please enter the directory in which you would like to save the JPG images in (deafult: {0}/ ):".format(DEFAULT_PREVIEW_DIRECTORY))
-    if not tiff_directory: tiff_directory = DEFAULT_TIFF_DIRECTORY
-    if not jpg_directory: jpg_directory = DEFAULT_PREVIEW_DIRECTORY
-    if not os.path.exists(tiff_directory): os.mkdir(tiff_directory)
-    if not os.path.exists(jpg_directory): os.mkdir(jpg_directory)
+    _vars = [
+   	    input("Please enter the directory in which you would like to save the TIFF images in (default: {0}/ ): ".format(DEFAULT_TIFF_DIRECTORY)),
+        input("Please enter the directory in which you would like to save the JPG images in (deafult: {0}/ ):".format(DEFAULT_PREVIEW_DIRECTORY)),
+        input("Please enter the name for the csv file (including .csv extension) (default {0})".format(DEFAULT_CSV_NAME))
+    ]
+    for i, name in enumerate(_vars):
+        if not name: _vars[i] = [DEFAULT_TIFF_DIRECTORY, DEFAULT_PREVIEW_DIRECTORY, DEFAULT_CSV_NAME][i] #lmao
+    [os.mkdir(i) for i in _vars[0:2] if not os.path.exists(i)] 
 
-    return tiff_directory, jpg_directory
+    return _vars[0], _vars[1], _vars[2]
 
 class Csv:
     """A CSV class to be able to write to the CSV easily
@@ -94,16 +112,15 @@ class Csv:
            csv_writer: object of hte csv.writer class, used to write data to the CSV
            directory: directory where the images are saved
     """
-    def __init__(self, csv_filename="csv_file.csv"):
-        self.tiff_directory, self.jpg_directory = handle_directories( )
+    def __init__(self):
+        self.tiff_directory, self.jpg_directory, csv_filename = handle_directories( )
         self.counter = 0
         self.csvfile = open(csv_filename, "w", encoding="UTF-8")
         self.csv_writer = csv.writer(self.csvfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
         self.csv_writer.writerow(["identification_number","image_url",
                                   "full_size_direct_download",
                                   "jpg_download_link","title","author",
-                                  "original_publisher", "original_creation_year",
-                                  "scene_information", "original_location",
+                                  "original_creation_year", "original_location",
                                   "keywords", "category", "copyright_status"])
 
     def write(self, data: list):
@@ -113,11 +130,10 @@ class Csv:
         download_file(data[2],SKU,directory=self.jpg_directory, ext="jpg")
         self.csv_writer.writerow([SKU]+data)
 
-
 def image_urls(url):
-    r    = requests.get(url)
-    soup = BSoup(r.text, "lxml")
-    a    = soup.find_all("div", class_="credits")
+    r      = make_request(url)
+    soup   = BSoup(r.text, "lxml")
+    a      = soup.find_all("div", class_="credits")
     images = a[0].findChildren("a")
     try:
         with Pool(10) as p:
@@ -130,15 +146,14 @@ def image_urls(url):
 
 def main( ):
     urls = make_urls( )
-    #[os.mkdir(directory) if not os.path.exists(directory)]
     with Pool(10) as p:
         pm = p.imap_unordered(image_urls, urls)
         pm = [i for i in pm if i]
 
 if __name__=="__main__":
     try:
-    	CSV = Csv( )
-    	main( )
+        CSV = Csv( )
+        main( )
     except KeyboardInterrupt:
-    	print("Exitting the program...")
-    	exit( )
+        print("Exitting the program...")
+        exit( )

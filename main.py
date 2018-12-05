@@ -3,6 +3,7 @@
 import os
 import csv
 import lxml
+import socket
 import requests
 from time import sleep
 from requests import RequestException
@@ -19,24 +20,26 @@ DEFAULT_TIFF_DIRECTORY = "tiffs"
 DEFAULT_PREVIEW_DIRECTORY = "jpgs"
 TIME_BETWEEN_FAILED_ATTEMPTS = 5
 
-def download_file(url, name, directory=DEFAULT_TIFF_DIRECTORY, chunk_size=1024):
+def download_file(url, name, directory=DEFAULT_TIFF_DIRECTORY, chunk_size=1024, ext="tiff"):
     print("[*] Downloading file {0}".format(url))
-    r = requests.get(url, stream=True)
-    with open("{0}/{1}.tiff".format(directory, name), "wb") as f:
+    r = make_request(url, stream=True)
+    with open("{0}/{1}.{2}".format(directory, name, ext), "wb") as f:
         for chunk in r.iter_content(chunk_size=chunk_size):
             if chunk:
                 f.write(chunk)
                 f.flush( )
 
-def make_request(url, failed_until_giveup=20):
+def make_request(url, failed_until_giveup=20, stream=False):
     for attempt in range(failed_until_giveup):
         try:
-            r = requests.get(url)
+            r = requests.get(url, stream=stream)
             return r
         except RequestException:
             print("[*] Request failed, retrying in {0} seconds".format(TIME_BETWEEN_FAILED_ATTEMPTS))
             print("Giving up in {0} attempts".format(failed_until_giveup-attempt))
-            sleep(TIME_BETWEEN_FAILED_ATTEMPT)
+            sleep(TIME_BETWEEN_FAILED_ATTEMPTS)
+        except socket.error:
+        	print("err")
 
 def make_urls( ):
     """This gets the total amount of pages that are in the websites /en/photos, and will return a list of all possible
@@ -73,6 +76,16 @@ def handle_image(url):
     CSV.write(list1)
     return list1
 
+def handle_directories( ):
+    tiff_directory = input("Please enter the directory in which you would like to save the TIFF images in (default: {0}/ ): ".format(DEFAULT_TIFF_DIRECTORY))
+    jpg_directory  = input("Please enter the directory in which you would like to save the JPG images in (deafult: {0}/ ):".format(DEFAULT_PREVIEW_DIRECTORY))
+    if not tiff_directory: tiff_directory = DEFAULT_TIFF_DIRECTORY
+    if not jpg_directory: jpg_directory = DEFAULT_PREVIEW_DIRECTORY
+    if not os.path.exists(tiff_directory): os.mkdir(tiff_directory)
+    if not os.path.exists(jpg_directory): os.mkdir(jpg_directory)
+
+    return tiff_directory, jpg_directory
+
 class Csv:
     """A CSV class to be able to write to the CSV easily
        Attributes:
@@ -82,10 +95,7 @@ class Csv:
            directory: directory where the images are saved
     """
     def __init__(self, csv_filename="csv_file.csv"):
-        self.tiff_directory = str(input("Please enter the directory in which you would like to save the TIFF images in (default: {0}/ ): ".format(DEFAULT_TIFF_DIRECTORY)))
-        self.jpg_directory  = str(input("Please enter the directory in which you would like to save the JPG images in (deafult: {0}/".format(DEFAULT_PREVIEW_DIRECTORY)))
-        os.mkdir(self.tiff_directory)
-        os.mkdir(self.jpg_directory)
+        self.tiff_directory, self.jpg_directory = handle_directories( )
         self.counter = 0
         self.csvfile = open(csv_filename, "w", encoding="UTF-8")
         self.csv_writer = csv.writer(self.csvfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
@@ -100,7 +110,7 @@ class Csv:
         self.counter+=1
         SKU = "PXB{}".format(str(self.counter).zfill(6))
         download_file(data[1],SKU,directory=self.tiff_directory)
-
+        download_file(data[2],SKU,directory=self.jpg_directory, ext="jpg")
         self.csv_writer.writerow([SKU]+data)
 
 
@@ -109,13 +119,12 @@ def image_urls(url):
     soup = BSoup(r.text, "lxml")
     a    = soup.find_all("div", class_="credits")
     images = a[0].findChildren("a")
-    print(images)
     try:
         with Pool(10) as p:
             pm = p.imap_unordered(handle_image, [BASE_URL+image["href"] for image in images])
             pm = [i for i in pm if i]
     except KeyboardInterrupt:
-    	print("Exiting program")
+        print("Exiting program")
 
     return [BASE_URL+image["href"] for image in images]
 
@@ -127,6 +136,9 @@ def main( ):
         pm = [i for i in pm if i]
 
 if __name__=="__main__":
-    CSV = Csv( )
-    main( )
-
+    try:
+    	CSV = Csv( )
+    	main( )
+    except KeyboardInterrupt:
+    	print("Exitting the program...")
+    	exit( )

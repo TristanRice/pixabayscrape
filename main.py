@@ -22,9 +22,16 @@ DEFAULT_PREVIEW_DIRECTORY = "jpgs"
 DEFAULT_CSV_NAME = "image_csv.csv"
 TIME_BETWEEN_FAILED_ATTEMPTS = 5
 
+"""
+Because 
+"""
 def make_countries( ):
+
 	return [country.name for country in pycountry.countries]
 
+"""
+a funciton to download an image. It will then save the image to a specified directory.
+"""
 def download_file(url, name, directory=DEFAULT_TIFF_DIRECTORY, chunk_size=1024, ext="tiff"):
     print("[*] Downloading file {0}".format(url))
     r = make_request(url, stream=True)
@@ -49,15 +56,22 @@ def make_request(url, failed_until_giveup=20, stream=False):
             print("Giving up in {0} attempts".format(failed_until_giveup-attempt))
             sleep(TIME_BETWEEN_FAILED_ATTEMPTS)
 
+"""
+This gets the total amount of pages that are in the websites /en/photos, and will return a list of all possible
+URLS that I can get images from.
+"""
 def make_urls( ):
-    """This gets the total amount of pages that are in the websites /en/photos, and will return a list of all possible
-       URLS that I can get images from."""
     r = make_request(MAIN_URL)
     soup = BSoup(r.text, "lxml")
     number_of_pages = soup.find_all("form", class_="add_search_params")[0].text.strip( ).strip("/").strip( ) #This gets the total numebr of pages
     
     return [BASE_URL+"/en/photos"+"?&pagi="+str(i) for i in range(int(number_of_pages))]
 
+"""
+This block of code takes the image URL, and scraps all metadata from it. It then writes this information to a
+CSV. In the CSV.write function, it will also download the full size image, as well as a preview of the image, to
+a folder that the user has chosen.
+"""
 def handle_image(url):
     #This gets the image url, and gets all metadata 
     countries 		 =   make_countries( )
@@ -75,8 +89,8 @@ def handle_image(url):
     try:
         category     =   details[0].findChildren("a")[0].string #because the category in the details will always be a link,
     except IndexError:
-    	#Some images don't have a category, so 
-        category     =   ""
+    	#Some images will not have a category, so if they don't I will just put an empty string. 
+    	category         =   ""
     keywordslist 	 =   keywords.split( )
     country 		 =   ''.join([word for word in keywordslist if word in countries])
 
@@ -84,8 +98,8 @@ def handle_image(url):
     #List goes as follows:
     #image_url, full_size_direct_download, jpg_download_link, title, author,
     #original_creation_year, original_location, keywords, category, copyright_status.
-    
     list1 = [url, cdn_1280, preview, title, author, year_created, country, keywords, category, "CC0"]
+    #Since all images are CC0 copyrighted, I can just hardcode that in
     CSV.write(list1)
     return list1
 
@@ -93,13 +107,11 @@ def handle_image(url):
 This is used to prompt the user to chose where they want to save the images and the CSV file. 
 """
 def handle_directories( ):
-    _vars = [
-   	    input("Please enter the directory in which you would like to save the TIFF images in (default: {0}/ ): ".format(DEFAULT_TIFF_DIRECTORY)),
-        input("Please enter the directory in which you would like to save the JPG images in (deafult: {0}/ ):".format(DEFAULT_PREVIEW_DIRECTORY)),
+    _vars = [var if var else [DEFAULT_TIFF_DIRECTORY, DEFAULT_PREVIEW_DIRECTORY, DEFAULT_CSV_NAME][i] for i, var in enumerate([
+   	    input("Please enter the directory in which you would like to save the TIFF images in (default: {0}/): ".format(DEFAULT_TIFF_DIRECTORY)),
+        input("Please enter the directory in which you would like to save the JPG images in (deafult: {0}/):".format(DEFAULT_PREVIEW_DIRECTORY)),
         input("Please enter the name for the csv file (including .csv extension) (default {0})".format(DEFAULT_CSV_NAME))
-    ]
-    for i, name in enumerate(_vars):
-        if not name: _vars[i] = [DEFAULT_TIFF_DIRECTORY, DEFAULT_PREVIEW_DIRECTORY, DEFAULT_CSV_NAME][i] #lmao
+    ])]
     [os.mkdir(i) for i in _vars[0:2] if not os.path.exists(i)] 
 
     return _vars[0], _vars[1], _vars[2]
@@ -107,7 +119,7 @@ def handle_directories( ):
 class Csv:
     """A CSV class to be able to write to the CSV easily
        Attributes:
-           counter: this is a counter in oirder to creaet the PXB SKUs
+           counter: this is a counter in oirder to create the PXB SKUs
            csvfile: The file that is opened to keep the metadata in 
            csv_writer: object of hte csv.writer class, used to write data to the CSV
            directory: directory where the images are saved
@@ -123,13 +135,21 @@ class Csv:
                                   "original_creation_year", "original_location",
                                   "keywords", "category", "copyright_status"])
 
-    def write(self, data: list):
+    """
+	This method will take 1 paramter, which is data. This will be the metadata that is included in the photo.
+	It will also download both the preview of the image, and the fully sized image. 
+    """
+    def write(self, data):
         self.counter+=1
         SKU = "PXB{}".format(str(self.counter).zfill(6))
         download_file(data[1],SKU,directory=self.tiff_directory)
         download_file(data[2],SKU,directory=self.jpg_directory, ext="jpg")
         self.csv_writer.writerow([SKU]+data)
 
+"""
+This will get all the specific image URLs from a page of image URLs, it will then deal with them individually in the 
+handle_image function. 
+"""
 def image_urls(url):
     r      = make_request(url)
     soup   = BSoup(r.text, "lxml")
@@ -141,8 +161,6 @@ def image_urls(url):
             pm = [i for i in pm if i]
     except KeyboardInterrupt:
         print("Exiting program")
-
-    return [BASE_URL+image["href"] for image in images]
 
 def main( ):
     urls = make_urls( )
